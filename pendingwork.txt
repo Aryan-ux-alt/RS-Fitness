@@ -1,0 +1,4 @@
+USER SIDE: 
+
+1. complete checkout
+3. MAKE workout tab fully functionable
