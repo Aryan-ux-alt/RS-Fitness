@@ -2,6 +2,9 @@ import { useState, useEffect } from "react";
 import AuthScreen from "./components/auth/AuthScreen";
 import GymOwnerDashboard from "./components/gym-owner/GymOwnerDashboard";
 import App from "./App";
+import OfflineScreen from "./components/error/OfflineScreen";
+import ErrorBoundary from "./components/error/ErrorBoundary";
+import APIErrorDisplay from "./components/error/APIErrorDisplay";
 
 export default function Root() {
   useEffect(() => {
@@ -60,7 +63,17 @@ export default function Root() {
     setGymOwner(null);
   };
 
-  if (gymOwner) return <GymOwnerDashboard gymOwner={gymOwner} onLogout={handleLogout}/>;
-  if (!user) return <AuthScreen onAuth={handleAuth}/>;
-  return <App user={user} onLogout={handleLogout}/>;
+  const appContent = gymOwner 
+    ? <GymOwnerDashboard gymOwner={gymOwner} onLogout={handleLogout}/>
+    : !user 
+    ? <AuthScreen onAuth={handleAuth}/> 
+    : <App user={user} onLogout={handleLogout}/>;
+
+  return (
+    <ErrorBoundary>
+      <OfflineScreen />
+      <APIErrorDisplay />
+      {appContent}
+    </ErrorBoundary>
+  );
 }

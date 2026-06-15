@@ -7,7 +7,7 @@ export function Avatar({ name, size = 40 }) {
     <div style={{ width:size, height:size, borderRadius:"50%", background:C.primary,
       display:"flex", alignItems:"center", justifyContent:"center",
       fontWeight:700, fontSize:size*0.35, color:"#fff", flexShrink:0,
-      fontFamily:"'Barlow Condensed',sans-serif", letterSpacing:1 }}>
+      fontFamily:"'Barlow Condensed',sans-serif", letterSpacing:1, minWidth:size, minHeight:size }}>
       {initials}
     </div>
   );
@@ -16,7 +16,7 @@ export function Avatar({ name, size = 40 }) {
 export function Field({ label, children }) {
   return (
     <div style={{ marginBottom:14 }}>
-      {label && <label style={{ display:"block", marginBottom:5, fontSize:11, color:C.muted,
+      {label && <label style={{ display:"block", marginBottom:5, fontSize:"clamp(10px, 2vw, 11px)", color:C.muted,
         fontWeight:600, letterSpacing:1, textTransform:"uppercase" }}>{label}</label>}
       {children}
     </div>
@@ -27,7 +27,7 @@ export function TextInput({ label, ...props }) {
   return (
     <Field label={label}>
       <input {...props} style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`,
-        borderRadius:8, padding:"10px 14px", color:C.dark, fontSize:14, outline:"none",
+        borderRadius:8, padding:"10px 14px", color:C.dark, fontSize:"clamp(13px, 3vw, 14px)", outline:"none",
         fontFamily:"'Barlow',sans-serif", boxSizing:"border-box", ...props.style }}
         onFocus={e => e.target.style.borderColor = C.primary}
         onBlur={e => e.target.style.borderColor = C.border} />
@@ -38,9 +38,9 @@ export function TextInput({ label, ...props }) {
 export function PrimaryBtn({ children, onClick, style: s }) {
   return (
     <button onClick={onClick} style={{ width:"100%", background:C.primary, border:"none",
-      borderRadius:8, padding:"11px 20px", color:"#fff", fontSize:14, fontWeight:700,
+      borderRadius:8, padding:"11px 20px", color:"#fff", fontSize:"clamp(12px, 3vw, 14px)", fontWeight:700,
       cursor:"pointer", letterSpacing:0.5, fontFamily:"'Barlow Condensed',sans-serif",
-      textTransform:"uppercase", transition:"opacity 0.15s", ...s }}
+      textTransform:"uppercase", transition:"opacity 0.15s", minHeight:40, ...s }}
       onMouseEnter={e=>e.currentTarget.style.opacity="0.85"}
       onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
       {children}
@@ -52,8 +52,8 @@ export function GhostBtn({ children, onClick, style: s }) {
   return (
     <button onClick={onClick} style={{ width:"100%", background:"transparent",
       border:`1px solid ${C.border}`, borderRadius:8, padding:"11px 20px", color:C.dark,
-      fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"'Barlow Condensed',sans-serif",
-      textTransform:"uppercase", transition:"background 0.15s", ...s }}
+      fontSize:"clamp(12px, 3vw, 14px)", fontWeight:700, cursor:"pointer", fontFamily:"'Barlow Condensed',sans-serif",
+      textTransform:"uppercase", transition:"background 0.15s", minHeight:40, ...s }}
       onMouseEnter={e=>e.currentTarget.style.background=C.surface}
       onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
       {children}
@@ -64,8 +64,8 @@ export function GhostBtn({ children, onClick, style: s }) {
 export function Overlay({ children, onClose }) {
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(30,58,95,0.45)",
-      display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:16 }}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:C.card, borderRadius:16, padding:24,
+      display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:"clamp(12px, 5vw, 16px)" }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:C.card, borderRadius:16, padding:"clamp(16px, 4vw, 24px)",
         width:"100%", maxWidth:420, border:`1px solid ${C.border}`,
         boxShadow:"0 16px 48px rgba(59,130,246,0.15)", maxHeight:"90vh", overflowY:"auto" }}>
         {children}
@@ -76,7 +76,7 @@ export function Overlay({ children, onClose }) {
 
 export function SectionTitle({ children }) {
   return <h2 style={{ color:C.dark, fontFamily:"'Barlow Condensed',sans-serif",
-    fontSize:22, fontWeight:800, margin:"0 0 18px" }}>{children}</h2>;
+    fontSize:"clamp(18px, 5vw, 22px)", fontWeight:800, margin:"0 0 16px" }}>{children}</h2>;
 }
 
 export function StatCard({ label, value, color, badge }) {
@@ -91,9 +91,9 @@ export function StatCard({ label, value, color, badge }) {
           {badge}
         </div>
       )}
-      <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1,
+      <div style={{ fontSize:"clamp(9px, 2vw, 10px)", color:C.muted, textTransform:"uppercase", letterSpacing:1,
         fontWeight:600, marginBottom:5 }}>{label}</div>
-      <div style={{ fontSize:17, fontWeight:800, color:color||C.primary,
+      <div style={{ fontSize:"clamp(15px, 4vw, 17px)", fontWeight:800, color:color||C.primary,
         fontFamily:"'Barlow Condensed',sans-serif" }}>{value}</div>
     </div>
   );
@@ -109,7 +109,7 @@ export const authInputStyle = {
 export function AuthInput({ label, style: extraStyle, ...props }) {
   return (
     <div style={{ marginBottom:14 }}>
-      <label style={{ display:"block", marginBottom:5, fontSize:11, color:"#93A8C8",
+      <label style={{ display:"block", marginBottom:5, fontSize:"clamp(10px, 2vw, 11px)", color:"#93A8C8",
         fontWeight:700, letterSpacing:1, textTransform:"uppercase" }}>{label}</label>
       <input {...props} style={{ ...authInputStyle, ...extraStyle }}
         onFocus={e => e.target.style.borderColor="#3B82F6"}

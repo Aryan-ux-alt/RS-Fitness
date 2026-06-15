@@ -236,15 +236,40 @@ export default function App({ user, onLogout }) {
         input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none}
         ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:#BFDBFE;border-radius:4px}
         select option{background:#fff;color:#1E3A5F}
+        
+        /* ─────── MOBILE RESPONSIVE (max-width: 640px) ─────── */
+        @media (max-width: 640px) {
+          * { margin: 0; padding: 0; }
+          body { font-size: 14px; }
+          h1 { font-size: 20px !important; }
+          h2 { font-size: 16px !important; }
+          h3 { font-size: 14px !important; }
+          p { font-size: 13px !important; }
+          button { font-size: 12px !important; padding: 8px 10px !important; }
+          input, select { font-size: 14px !important; }
+          [style*="gridTemplateColumns"] {
+            grid-template-columns: 1fr !important;
+            gap: 8px !important;
+          }
+          [style*="display:flex"] {
+            flex-wrap: wrap !important;
+          }
+        }
+        
+        @media (max-width: 360px) {
+          h1 { font-size: 18px !important; }
+          h2 { font-size: 14px !important; }
+          button { font-size: 11px !important; }
+        }
       `}</style>
 
       {/* Header */}
-      <div style={{ background:C.card, borderBottom:`1px solid ${C.border}`, padding:"13px 20px",
+      <div style={{ background:C.card, borderBottom:`1px solid ${C.border}`, padding:"10px 16px",
         display:"flex", alignItems:"center", justifyContent:"space-between",
-        position:"sticky", top:0, zIndex:50, boxShadow:"0 1px 12px rgba(59,130,246,0.06)" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:9 }}>
-          <div style={{ width:32, height:32, background:C.primary, borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center" }}>
-            <svg width="18" height="18" fill="none" viewBox="0 0 24 24">
+        position:"sticky", top:0, zIndex:50, boxShadow:"0 1px 12px rgba(59,130,246,0.06)", flexWrap:"wrap", gap:8 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6, minWidth:0 }}>
+          <div style={{ width:28, height:28, background:C.primary, borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24">
               <rect x="2" y="10" width="4" height="4" rx="1" fill="#fff"/>
               <rect x="18" y="10" width="4" height="4" rx="1" fill="#fff"/>
               <rect x="5" y="8" width="2" height="8" rx="1" fill="#fff"/>
@@ -252,27 +277,27 @@ export default function App({ user, onLogout }) {
               <rect x="7" y="11" width="10" height="2" rx="1" fill="#fff"/>
             </svg>
           </div>
-          <span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:20, fontWeight:800, color:C.dark, letterSpacing:2 }}>RS FITNESS</span>
+          <span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:"clamp(16px, 5vw, 18px)", fontWeight:800, color:C.dark, letterSpacing:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>RS FITNESS</span>
         </div>
         <button onClick={toggleGoal} style={{
           background:goalBg, border:`1px solid ${goalBdr}`, borderRadius:20,
-          padding:"5px 13px", cursor:"pointer", color:goalClr,
-          fontSize:12, fontWeight:700, textTransform:"uppercase", letterSpacing:1,
-          fontFamily:"'Barlow Condensed',sans-serif", transition:"all 0.2s",
+          padding:"6px 12px", cursor:"pointer", color:goalClr,
+          fontSize:"clamp(10px, 3vw, 12px)", fontWeight:700, textTransform:"uppercase", letterSpacing:0.5,
+          fontFamily:"'Barlow Condensed',sans-serif", transition:"all 0.2s", whiteSpace:"nowrap"
         }}>{goal==="bulking" ? "💪 Bulking" : "🔥 Cutting"}</button>
       </div>
 
       {/* Content */}
-      <div style={{ maxWidth:680, margin:"0 auto", padding:"20px 16px" }}>
+      <div style={{ maxWidth:680, margin:"0 auto", padding:"clamp(12px, 3vw, 20px)" }}>
 
         {/* ── DASHBOARD ── */}
         {tab==="dashboard" && (
           <>
-            <div style={{ marginBottom:22 }}>
-              <h1 style={{ color:C.dark, margin:"0 0 4px", fontFamily:"'Barlow Condensed',sans-serif", fontSize:26, fontWeight:800 }}>
+            <div style={{ marginBottom:20 }}>
+              <h1 style={{ color:C.dark, margin:"0 0 4px", fontFamily:"'Barlow Condensed',sans-serif", fontSize:"clamp(22px, 6vw, 26px)", fontWeight:800 }}>
                 Hey, {user.name.split(" ")[0]} 👋
               </h1>
-              <p style={{ color:C.muted, margin:0, fontSize:14 }}>
+              <p style={{ color:C.muted, margin:0, fontSize:"clamp(12px, 3vw, 14px)" }}>
                 {todayLogs.length===0 ? "No workouts logged today. Let's go!" : `${todayLogs.length} exercise${todayLogs.length>1?"s":""} logged today. Keep it up!`}
               </p>
             </div>

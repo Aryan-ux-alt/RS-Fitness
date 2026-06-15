@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getGymMembers, sendMemberReminder } from "../../services/api";
+import { getGymMembers, sendMemberReminder, renewGymMember } from "../../services/api";
 import AdminDashboard from "../admin/AdminDashboard";
 import { MEMBERSHIP_PLANS } from "../../constants/membership";
 
@@ -147,53 +147,69 @@ export default function GymOwnerDashboard({ gymOwner, onLogout }) {
     if (!plan) return;
 
     const amount = MEMBERSHIP_FEE * plan.months;
-    const today = new Date();
-    const newExpiryDate = new Date(today);
-    newExpiryDate.setMonth(newExpiryDate.getMonth() + plan.months);
 
-    // Update member start and expiry dates
-    const updatedMembers = members.map(m => {
-      if (m.user_id === renewingMember.user_id) {
-        const newExpiry = newExpiryDate.toISOString().split('T')[0];
-        const daysLeft = Math.ceil((newExpiryDate - today) / (1000 * 60 * 60 * 24));
-        return {
-          ...m,
-          start_date: today.toISOString().split('T')[0],
-          expiry_date: newExpiry,
-          plan: plan.label,
-          membership_type: "active",
-          status: "active",
-          days_remaining: daysLeft
+    try {
+      const res = await renewGymMember({
+        userId: renewingMember.user_id,
+        planId: selectedPlan,
+        planLabel: plan.label,
+        months: plan.months,
+        amount: amount
+      });
+
+      if (res.ok) {
+        const today = new Date();
+        const newExpiryDate = new Date(today);
+        newExpiryDate.setMonth(newExpiryDate.getMonth() + plan.months);
+
+        // Update member start and expiry dates
+        const updatedMembers = members.map(m => {
+          if (m.user_id === renewingMember.user_id) {
+            const newExpiry = newExpiryDate.toISOString().split('T')[0];
+            const daysLeft = Math.ceil((newExpiryDate - today) / (1000 * 60 * 60 * 24));
+            return {
+              ...m,
+              start_date: today.toISOString().split('T')[0],
+              expiry_date: newExpiry,
+              plan: plan.label,
+              membership_type: "active",
+              status: "active",
+              days_remaining: daysLeft
+            };
+          }
+          return m;
+        });
+        setMembers(updatedMembers);
+
+        // Add earning record
+        const newEarning = {
+          id: Date.now(),
+          memberId: renewingMember.user_id,
+          memberName: renewingMember.name,
+          planId: selectedPlan,
+          planLabel: plan.label,
+          months: plan.months,
+          amount: amount,
+          date: new Date().toISOString()
         };
+        
+        const updatedEarnings = [...earnings, newEarning];
+        setEarnings(updatedEarnings);
+        localStorage.setItem(`gym_earnings_${gymOwner?.gym_id}`, JSON.stringify(updatedEarnings));
+
+        const startDate = today.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+        const endDate = newExpiryDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+        setReminderMessage(`✅ Membership renewed! Start: ${startDate} | End: ${endDate} | Added ₹${amount}`);
+        setTimeout(() => setReminderMessage(""), 3000);
       }
-      return m;
-    });
-    setMembers(updatedMembers);
-
-    // Add earning record
-    const newEarning = {
-      id: Date.now(),
-      memberId: renewingMember.user_id,
-      memberName: renewingMember.name,
-      planId: selectedPlan,
-      planLabel: plan.label,
-      months: plan.months,
-      amount: amount,
-      date: new Date().toISOString()
-    };
-    
-    const updatedEarnings = [...earnings, newEarning];
-    setEarnings(updatedEarnings);
-    localStorage.setItem(`gym_earnings_${gymOwner?.gym_id}`, JSON.stringify(updatedEarnings));
-
-    const startDate = today.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-    const endDate = newExpiryDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-    setReminderMessage(`✅ Membership renewed! Start: ${startDate} | End: ${endDate} | Added ₹${amount}`);
-    setTimeout(() => setReminderMessage(""), 3000);
-    
-    setShowRenewModal(false);
-    setRenewingMember(null);
-    setSelectedPlan("monthly");
+    } catch (err) {
+      console.error("Failed to renew membership", err);
+      alert(err.message || "Failed to renew membership.");
+    } finally {
+      setShowRenewModal(false);
+      setRenewingMember(null);
+      setSelectedPlan("monthly");
+    }
   };
 
   // Send reminder to member
@@ -206,13 +222,14 @@ export default function GymOwnerDashboard({ gymOwner, onLogout }) {
     return /^[6-9]\d{9}$/.test(cleanPhone);
   };
 
-  const handleSendReminder = async (member) => {
+  const handleSendReminder = async (member, memberType = null) => {
     // Validate phone number first
     if (!member.phone || !isValidPhoneNumber(member.phone)) {
       setReminderError({
         type: "invalid_phone",
         memberName: member.name,
-        message: `Invalid number for ${member.name}`
+        message: `Invalid number for ${member.name}`,
+        section: memberType // "no_membership" or "expired"
       });
       setTimeout(() => setReminderError(null), 5000);
       return;
@@ -250,7 +267,8 @@ export default function GymOwnerDashboard({ gymOwner, onLogout }) {
       setReminderError({
         type: errorType,
         memberName: member.name,
-        message: errorMsg
+        message: errorMsg,
+        section: memberType // "no_membership" or "expired"
       });
       setTimeout(() => setReminderError(null), 4000);
     } finally {
@@ -271,6 +289,8 @@ export default function GymOwnerDashboard({ gymOwner, onLogout }) {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap');
         *{box-sizing:border-box}
+        
+        /* ─────── BASE STYLES ─────── */
         .member-table {
           width: 100%;
           border-collapse: collapse;
@@ -325,15 +345,143 @@ export default function GymOwnerDashboard({ gymOwner, onLogout }) {
           box-shadow: 0 4px 12px rgba(59,130,246,0.08);
           border-color: #3B82F6 !important;
         }
+        
+        /* ─────── MOBILE RESPONSIVE (max-width: 640px) ─────── */
+        @media (max-width: 640px) {
+          * { margin: 0; padding: 0; }
+          
+          body { font-size: 14px; }
+          
+          /* Header adjustments */
+          header, [style*="background:"] {
+            padding: 10px 12px !important;
+          }
+          
+          /* Main content area */
+          [style*="maxWidth:680"] {
+            padding: 12px 10px !important;
+            margin: 0 auto !important;
+          }
+          
+          /* Typography */
+          h1 { font-size: 20px !important; }
+          h2 { font-size: 16px !important; }
+          h3 { font-size: 14px !important; }
+          p { font-size: 13px !important; }
+          
+          /* Grid layouts - 1 column on mobile */
+          [style*="gridTemplateColumns"] {
+            grid-template-columns: 1fr !important;
+            gap: 8px !important;
+          }
+          
+          /* Flexbox adjustments */
+          [style*="display:flex"] {
+            flex-wrap: wrap !important;
+          }
+          
+          /* Buttons - full width on small screens */
+          button {
+            font-size: 12px !important;
+            padding: 8px 10px !important;
+            min-height: 40px;
+            min-width: 100%;
+          }
+          
+          /* Input fields */
+          input, textarea, select {
+            font-size: 14px !important;
+            padding: 10px !important;
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+          
+          /* Table responsive */
+          .member-table {
+            font-size: 12px !important;
+          }
+          .member-table th, .member-table td {
+            padding: 8px 4px !important;
+            font-size: 11px !important;
+          }
+          
+          /* Cards */
+          [style*="background:"] [style*="border-radius"] {
+            border-radius: 8px !important;
+            padding: 12px !important;
+            margin-bottom: 10px !important;
+          }
+          
+          /* Spacing */
+          [style*="marginBottom"] {
+            margin-bottom: 12px !important;
+          }
+          
+          /* Tab buttons */
+          [style*="display:flex"][style*="gap:12"] {
+            gap: 6px !important;
+            flex-wrap: wrap !important;
+          }
+          
+          /* Searchbar */
+          [style*="maxWidth:200"] {
+            max-width: 100% !important;
+            width: 100% !important;
+          }
+          
+          /* Modal/Dialog adjustments */
+          [style*="position:fixed"] {
+            width: 90vw !important;
+            max-width: 90vw !important;
+            max-height: 90vh !important;
+            overflow-y: auto !important;
+          }
+        }
+        
+        /* ─────── TABLET (641px to 1024px) ─────── */
+        @media (min-width: 641px) and (max-width: 1024px) {
+          h1 { font-size: 22px !important; }
+          h2 { font-size: 18px !important; }
+          [style*="gridTemplateColumns"] {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+          [style*="maxWidth:680"] {
+            max-width: 95% !important;
+          }
+          .member-table td, .member-table th {
+            font-size: 12px !important;
+            padding: 9px 5px !important;
+          }
+        }
+        
+        /* ─────── DESKTOP (min-width: 1025px) ─────── */
+        @media (min-width: 1025px) {
+          [style*="gridTemplateColumns"] {
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+          }
+        }
+        
+        /* ─────── EXTRA SMALL (max-width: 360px) ─────── */
+        @media (max-width: 360px) {
+          h1 { font-size: 18px !important; }
+          h2 { font-size: 14px !important; }
+          p { font-size: 12px !important; }
+          button { font-size: 11px !important; }
+          .member-table th, .member-table td {
+            padding: 6px 3px !important;
+            font-size: 10px !important;
+          }
+        }
       `}</style>
       
       {/* Header */}
-      <div style={{ background:C.card, borderBottom:`1px solid ${C.border}`, padding:"13px 20px",
+      <div style={{ background:C.card, borderBottom:`1px solid ${C.border}`, padding:"10px 16px",
         display:"flex", alignItems:"center", justifyContent:"space-between",
-        position:"sticky", top:0, zIndex:50, boxShadow:"0 1px 12px rgba(59,130,246,0.06)" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:9 }}>
-          <div style={{ width:32, height:32, background:C.primary, borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center" }}>
-            <svg width="18" height="18" fill="none" viewBox="0 0 24 24">
+        position:"sticky", top:0, zIndex:50, boxShadow:"0 1px 12px rgba(59,130,246,0.06)",
+        flexWrap:"wrap", gap:8 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6, minWidth:0 }}>
+          <div style={{ width:28, height:28, background:C.primary, borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24">
               <rect x="2" y="10" width="4" height="4" rx="1" fill="#fff"/>
               <rect x="18" y="10" width="4" height="4" rx="1" fill="#fff"/>
               <rect x="5" y="8" width="2" height="8" rx="1" fill="#fff"/>
@@ -341,25 +489,25 @@ export default function GymOwnerDashboard({ gymOwner, onLogout }) {
               <rect x="7" y="11" width="10" height="2" rx="1" fill="#fff"/>
             </svg>
           </div>
-          <span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:20, fontWeight:800, color:C.dark, letterSpacing:2 }}>RS FITNESS</span>
+          <span style={{ fontFamily:"'Barlow Condensed',sans-serif", fontSize:"clamp(16px, 5vw, 18px)", fontWeight:800, color:C.dark, letterSpacing:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>RS FITNESS</span>
         </div>
         
         <button onClick={onLogout} style={{
           background:"transparent", border:`1px solid ${C.red}`, borderRadius:20,
-          padding:"5px 13px", cursor:"pointer", color:C.red,
-          fontSize:12, fontWeight:700, textTransform:"uppercase", letterSpacing:1,
-          fontFamily:"'Barlow Condensed',sans-serif", transition:"all 0.2s",
+          padding:"6px 12px", cursor:"pointer", color:C.red,
+          fontSize:"clamp(10px, 3vw, 12px)", fontWeight:700, textTransform:"uppercase", letterSpacing:0.5,
+          fontFamily:"'Barlow Condensed',sans-serif", transition:"all 0.2s", whiteSpace:"nowrap"
         }}>Sign out</button>
       </div>
 
       {/* Main Content Area */}
-      <div style={{ maxWidth:680, margin:"0 auto", padding:"20px 16px" }}>
+      <div style={{ maxWidth:680, margin:"0 auto", padding:"clamp(12px, 3vw, 20px)" }}>
 
         {/* ── MEMBERS TAB ── */}
         {activeTab === "members" && (
           <>
-            <div style={{ marginBottom:22 }}>
-              <h1 style={{ color:C.dark, margin:"0 0 4px", fontFamily:"'Barlow Condensed',sans-serif", fontSize:26, fontWeight:800 }}>
+            <div style={{ marginBottom:20 }}>
+              <h1 style={{ color:C.dark, margin:"0 0 4px", fontFamily:"'Barlow Condensed',sans-serif", fontSize:"clamp(22px, 6vw, 26px)", fontWeight:800 }}>
                 Gym Members
               </h1>
               <p style={{ color:C.muted, margin:0, fontSize:14 }}>
@@ -471,9 +619,31 @@ export default function GymOwnerDashboard({ gymOwner, onLogout }) {
                               </span>
                             </td>
                             <td>
-                              {isExpired && (
+                              {isExpired ? (
                                 <button
-                                  onClick={() => handleSendReminder(member)}
+                                  onClick={() => {
+                                    setRenewingMember(member);
+                                    setSelectedPlan("monthly");
+                                    setShowRenewModal(true);
+                                  }}
+                                  style={{
+                                    padding: "5px 10px",
+                                    background: C.success,
+                                    color: "white",
+                                    border: "none",
+                                    borderRadius: 6,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                    whiteSpace: "nowrap",
+                                    transition: "all 0.2s"
+                                  }}
+                                >
+                                  🔄 Renew
+                                </button>
+                              ) : hasNoMembership ? (
+                                <button
+                                  onClick={() => handleSendReminder(member, "members_table")}
                                   disabled={sendingReminderId === member.user_id}
                                   style={{
                                     padding: "5px 10px",
@@ -485,11 +655,14 @@ export default function GymOwnerDashboard({ gymOwner, onLogout }) {
                                     fontWeight: 700,
                                     cursor: sendingReminderId === member.user_id ? "not-allowed" : "pointer",
                                     whiteSpace: "nowrap",
+                                    transition: "all 0.2s",
                                     opacity: sendingReminderId === member.user_id ? 0.6 : 1
                                   }}
                                 >
                                   {sendingReminderId === member.user_id ? "Sending..." : "📢 Remind"}
                                 </button>
+                              ) : (
+                                <span style={{ color: C.muted, fontSize: 12 }}>-</span>
                               )}
                             </td>
                           </tr>
@@ -497,6 +670,34 @@ export default function GymOwnerDashboard({ gymOwner, onLogout }) {
                       })}
                     </tbody>
                   </table>
+                </div>
+              )}
+
+              {/* ⚠️ ERROR ALERT FOR MEMBERS TABLE REMIND BUTTON */}
+              {reminderError && reminderError.section === "members_table" && (
+                <div style={{
+                  marginTop:12,
+                  background: reminderError.type === "invalid_phone" ? "#FEF3C7" : "#FEE2E2",
+                  border: reminderError.type === "invalid_phone" ? "2px solid #F59E0B" : "2px solid #EF4444",
+                  borderRadius:12,
+                  padding:"14px 16px",
+                  display:"flex",
+                  alignItems:"center",
+                  gap:12
+                }}>
+                  <div style={{ fontSize:24 }}>
+                    {reminderError.type === "invalid_phone" ? "📱" : "❌"}
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <p style={{
+                      margin:0,
+                      color: reminderError.type === "invalid_phone" ? "#92400E" : "#991B1B",
+                      fontSize:13,
+                      fontWeight:600
+                    }}>
+                      {reminderError.message}
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
@@ -583,7 +784,7 @@ export default function GymOwnerDashboard({ gymOwner, onLogout }) {
                         </div>
                       </div>
                       <button
-                        onClick={() => handleSendReminder(member)}
+                        onClick={() => handleSendReminder(member, "expired")}
                         disabled={sendingReminderId === member.user_id}
                         style={{
                           background: sendingReminderId === member.user_id ? C.muted : C.warning,
@@ -609,6 +810,34 @@ export default function GymOwnerDashboard({ gymOwner, onLogout }) {
                       +{expiredMembers - 5} more
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* ⚠️ ERROR ALERT FOR EXPIRED MEMBERS */}
+            {reminderError && reminderError.section === "expired" && (
+              <div style={{
+                marginBottom:22,
+                background: reminderError.type === "invalid_phone" ? "#FEF3C7" : "#FEE2E2",
+                border: reminderError.type === "invalid_phone" ? "2px solid #F59E0B" : "2px solid #EF4444",
+                borderRadius:12,
+                padding:"14px 16px",
+                display:"flex",
+                alignItems:"center",
+                gap:12
+              }}>
+                <div style={{ fontSize:24 }}>
+                  {reminderError.type === "invalid_phone" ? "📱" : "❌"}
+                </div>
+                <div style={{ flex:1 }}>
+                  <p style={{
+                    margin:0,
+                    color: reminderError.type === "invalid_phone" ? "#92400E" : "#991B1B",
+                    fontSize:13,
+                    fontWeight:600
+                  }}>
+                    {reminderError.message}
+                  </p>
                 </div>
               </div>
             )}
@@ -670,7 +899,7 @@ export default function GymOwnerDashboard({ gymOwner, onLogout }) {
                             {member.days_remaining} day{member.days_remaining !== "1" ? "s" : ""}
                           </div>
                           <button
-                            onClick={() => handleSendReminder(member)}
+                            onClick={() => handleSendReminder(member, "expiring_soon")}
                             style={{
                               padding: "5px 10px",
                               background: C.warning,
@@ -725,7 +954,7 @@ export default function GymOwnerDashboard({ gymOwner, onLogout }) {
                         </div>
                       </div>
                       <button
-                        onClick={() => handleSendReminder(member)}
+                        onClick={() => handleSendReminder(member, "no_membership")}
                         disabled={sendingReminderId === member.user_id}
                         style={{
                           background: sendingReminderId === member.user_id ? C.muted : "#F59E0B",
@@ -755,8 +984,8 @@ export default function GymOwnerDashboard({ gymOwner, onLogout }) {
               </div>
             )}
 
-            {/* ⚠️ REMINDER ERROR ALERT - DISPLAYS FAILURES */}
-            {reminderError && (
+            {/* ⚠️ ERROR ALERT FOR NO MEMBERSHIP SECTION */}
+            {reminderError && reminderError.section === "no_membership" && (
               <div style={{
                 marginBottom:22,
                 background: reminderError.type === "invalid_phone" ? "#FEF3C7" : "#FEE2E2",

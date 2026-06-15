@@ -29,25 +29,47 @@ export default function SubscriptionPanel({ user, subscription, transactions, on
 
   return (
     <div style={{ marginBottom:14 }}>
-      <button onClick={() => { setShowPlans(v => !v); }}
+      <style>{`
+        @media (max-width: 640px) {
+          .subscription-header { padding: 12px 14px !important; border-radius: 12px !important; }
+          .subscription-title { font-size: 18px !important; }
+          .subscription-desc { font-size: 12px !important; margin-top: 2px !important; }
+          .subscription-toggle { font-size: 18px !important; }
+          .subscription-info { padding: 12px 14px !important; border-radius: 12px !important; margin-bottom: 12px !important; }
+          .subscription-info-title { font-size: 20px !important; margin-bottom: 4px !important; }
+          .subscription-info-desc { font-size: 12px !important; }
+          .subscription-plans-grid { grid-template-columns: 1fr !important; gap: 10px !important; }
+          .subscription-plan-card { padding: 40px 12px 14px !important; min-height: 180px !important; }
+          .subscription-plan-label { font-size: 14px !important; }
+          .subscription-plan-price { font-size: 26px !important; margin-bottom: 24px !important; }
+          .subscription-plan-months { font-size: 12px !important; }
+          .subscription-plan-btn { font-size: 13px !important; padding: 9px !important; }
+        }
+        
+        @media (max-width: 360px) {
+          .subscription-title { font-size: 16px !important; }
+          .subscription-plan-price { font-size: 22px !important; }
+        }
+      `}</style>
+      <button onClick={() => { setShowPlans(v => !v); }} className="subscription-header"
         style={{ width:"100%", background:C.card, border:`1px solid ${C.border}`, borderRadius:14,
           padding:"16px 18px", color:C.dark, cursor:"pointer", fontFamily:"'Barlow',sans-serif",
           display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:14 }}>
         <div style={{ textAlign:"left" }}>
-          <div style={{ color:C.dark, fontFamily:"'Barlow Condensed',sans-serif", fontSize:21, fontWeight:800 }}>Subscription</div>
-          <div style={{ color:C.muted, fontSize:13, marginTop:3 }}>
+          <div className="subscription-title" style={{ color:C.dark, fontFamily:"'Barlow Condensed',sans-serif", fontSize:"clamp(18px, 5vw, 21px)", fontWeight:800 }}>Subscription</div>
+          <div className="subscription-desc" style={{ color:C.muted, fontSize:13, marginTop:3 }}>
             {isActive ? `${daysLeft} day${daysLeft===1?"":"s"} left in your gym membership` : "View membership plans"}
           </div>
         </div>
-        <span style={{ color:C.primary, fontSize:20, fontWeight:800 }}>{showPlans ? "−" : "+"}</span>
+        <span className="subscription-toggle" style={{ color:C.primary, fontSize:"clamp(16px, 4vw, 20px)", fontWeight:800 }}>{showPlans ? "−" : "+"}</span>
       </button>
 
       {showPlans && isActive && (
-        <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
-          <div style={{ color:C.dark, fontFamily:"'Barlow Condensed',sans-serif", fontSize:24, fontWeight:800, marginBottom:6 }}>
+        <div className="subscription-info" style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
+          <div className="subscription-info-title" style={{ color:C.dark, fontFamily:"'Barlow Condensed',sans-serif", fontSize:"clamp(20px, 5vw, 24px)", fontWeight:800, marginBottom:6 }}>
             {daysLeft} day{daysLeft===1?"":"s"} left
           </div>
-          <div style={{ color:C.muted, fontSize:13, lineHeight:1.5 }}>
+          <div className="subscription-info-desc" style={{ color:C.muted, fontSize:13, lineHeight:1.5 }}>
             Repayment is locked until your current {subscription.planLabel} membership ends.
           </div>
         </div>
@@ -57,34 +79,34 @@ export default function SubscriptionPanel({ user, subscription, transactions, on
         <div>
           <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:"12px 14px", marginBottom:16 }}>
             <div style={{ color:C.muted, fontSize:12, marginBottom:4 }}>Select a plan to get started:</div>
-            <div style={{ color:C.dark, fontSize:14, fontWeight:700 }}>Billing for: {gymName}</div>
+            <div style={{ color:C.dark, fontSize:"clamp(13px, 3vw, 14px)", fontWeight:700, overflow:"hidden", textOverflow:"ellipsis" }}>Billing for: {gymName}</div>
           </div>
 
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))", gap:14 }}>
+          <div className="subscription-plans-grid" style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))", gap:14 }}>
             {MEMBERSHIP_PLANS.map(p => {
               const tone = p.id==="monthly" ? "#22D3EE" : p.id==="quarterly" ? "#3B82F6" : p.id==="halfyearly" ? "#7C3AED" : "#A855F7";
               return (
-                <button key={p.id} onClick={() => handleSelectPlan(p)}
+                <button key={p.id} onClick={() => handleSelectPlan(p)} className="subscription-plan-card"
                   style={{ position:"relative", background:"#fff", border:`2px solid ${tone}`,
                     borderRadius:16, padding:"44px 14px 16px", minHeight:210, overflow:"hidden",
                     boxShadow:`0 10px 28px rgba(30,58,95,0.10)`, cursor:"pointer", transition:"all 0.2s" }}>
                   <div style={{ position:"absolute", top:0, left:"50%", transform:"translateX(-50%)",
                     width:"78%", height:78, background:tone, borderRadius:"0 0 46px 46px",
                     boxShadow:`0 18px 28px ${tone}70` }}/>
-                  <div style={{ position:"absolute", top:14, left:"50%", transform:"translateX(-50%)",
+                  <div className="subscription-plan-label" style={{ position:"absolute", top:14, left:"50%", transform:"translateX(-50%)",
                     color:"#fff", fontFamily:"'Barlow Condensed',sans-serif", fontSize:16,
                     fontWeight:800, textTransform:"uppercase", letterSpacing:1 }}>
                     {p.label}
                   </div>
                   <div style={{ position:"relative", textAlign:"center", paddingTop:12 }}>
-                    <div style={{ color:"#fff", fontFamily:"'Barlow Condensed',sans-serif", fontSize:30, fontWeight:800, marginBottom:28 }}>
+                    <div className="subscription-plan-price" style={{ color:"#fff", fontFamily:"'Barlow Condensed',sans-serif", fontSize:"clamp(24px, 6vw, 30px)", fontWeight:800, marginBottom:28 }}>
                       Rs {p.months * MEMBERSHIP_MONTHLY_FEE}
                     </div>
-                    <div style={{ color:C.dark, fontSize:13, fontWeight:700, marginBottom:4 }}>
+                    <div className="subscription-plan-months" style={{ color:C.dark, fontSize:13, fontWeight:700, marginBottom:4 }}>
                       {p.months} month{p.months===1?"":"s"}
                     </div>
                     <div style={{ color:C.muted, fontSize:12, marginBottom:18 }}>Gym membership</div>
-                    <div style={{ width:"100%", background:tone, border:"none",
+                    <div className="subscription-plan-btn" style={{ width:"100%", background:tone, border:"none",
                       borderRadius:24, padding:"10px", color:"#fff",
                       fontFamily:"'Barlow Condensed',sans-serif", fontSize:14, fontWeight:800,
                       textTransform:"uppercase" }}>
