@@ -1,5 +1,9 @@
 import { useState, useEffect } from "react";
-import { getGymMembers, getGymRevenue, sendMemberReminder, getPaymentsByMonth } from "../../services/api";
+import { getGymMembers, sendMemberReminder } from "../../services/api";
+import AdminDashboard from "../admin/AdminDashboard";
+import { MEMBERSHIP_PLANS } from "../../constants/membership";
+
+const MEMBERSHIP_FEE = 1000; // Rs per month
 
 const C = {
   bg: "#F3F4F6",
@@ -15,40 +19,53 @@ const C = {
 };
 
 export default function GymOwnerDashboard({ gymOwner, onLogout }) {
-  const [activeTab, setActiveTab] = useState("dashboard"); // "dashboard", "members", "payments", or "profile"
+  const [activeTab, setActiveTab] = useState("admin"); // "admin", "members", or "profile"
   const [members, setMembers] = useState([]);
-  const [revenue, setRevenue] = useState({ today: 0, thisMonth: 0, thisYear: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [showAccountModal, setShowAccountModal] = useState(false);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [sendingReminderId, setSendingReminderId] = useState(null);
   const [reminderMessage, setReminderMessage] = useState("");
-  const [reminderError, setReminderError] = useState(null); // NEW: for showing reminder errors
-  const [showPaymentsModal, setShowPaymentsModal] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState(null);
-  const [monthPayments, setMonthPayments] = useState([]);
-  const [loadingPayments, setLoadingPayments] = useState(false);
+  const [reminderError, setReminderError] = useState(null);
+  const [earnings, setEarnings] = useState(() => {
+    const stored = localStorage.getItem(`gym_earnings_${gymOwner?.gym_id}`);
+    return stored ? JSON.parse(stored) : [];
+  });
+  const [showRenewModal, setShowRenewModal] = useState(false);
+  const [renewingMember, setRenewingMember] = useState(null);
+  const [selectedPlan, setSelectedPlan] = useState("monthly");
 
   useEffect(() => {
-    async function loadData() {
+    async function loadMembers() {
       setLoading(true);
       setError("");
       try {
         const membersData = await getGymMembers();
-        setMembers(membersData);
         
-        const revenueData = await getGymRevenue();
-        setRevenue(revenueData);
+        // Add demo expired member for testing
+        const demoMember = {
+          user_id: "demo_expired_001",
+          name: "Demo - Expired Member",
+          email: "demo@example.com",
+          phone: "9876543210",
+          plan: "3-Month Plan",
+          start_date: "2025-12-14",
+          expiry_date: "2026-03-14", // 3 months ago - expired
+          status: "expired",
+          membership_type: "expired",
+          days_remaining: -91
+        };
+        
+        setMembers([...membersData, demoMember]);
       } catch (err) {
-        console.error("Failed to load data", err);
-        setError(err.message || "Failed to load data.");
+        console.error("Failed to load members", err);
+        setError(err.message || "Failed to load members.");
       } finally {
         setLoading(false);
       }
     }
-    loadData();
+    loadMembers();
   }, []);
 
   // Filter members by query
@@ -59,48 +76,124 @@ export default function GymOwnerDashboard({ gymOwner, onLogout }) {
 
   // Compute stats dynamically
   const totalMembers = members.length;
-  const activeMembers = members.filter(m => m.membership_type === "active").length;
-  const expiredMembers = members.filter(m => m.membership_type === "expired").length;
-  const noMembershipMembers = members.filter(m => m.membership_type === "no_membership").length;
-  const inactiveMembers = members.filter(m => m.membership_type === "inactive").length;
   
-  // Count members expiring today
+  // Categorize members
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+  const sevenDaysLater = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
   
-  const expiringToday = members.filter(m => {
+  const activeMembers = members.filter(m => {
     if (!m.expiry_date) return false;
     const expiryDate = new Date(m.expiry_date);
-    expiryDate.setHours(0, 0, 0, 0);
-    return expiryDate.getTime() === today.getTime();
+    return expiryDate > today;
   }).length;
-
-  // Get members expiring soon (next 7 days) - ACTIVE only
-  const membersExpiringSoon = members
-    .filter(m => {
-      const daysLeft = parseInt(m.days_remaining || 0);
-      return m.membership_type === "active" && daysLeft > 0 && daysLeft <= 7;
+  
+  const expiredMembers = members.filter(m => {
+    if (!m.expiry_date) return false;
+    const expiryDate = new Date(m.expiry_date);
+    return expiryDate <= today;
+  }).length;
+  
+  const noMembershipMembers = members.filter(m => !m.expiry_date || m.status === "pending").length;
+  
+  const expiredMembersNeedRenewal = members.filter(m => {
+    if (!m.expiry_date) return false;
+    const expiryDate = new Date(m.expiry_date);
+    return expiryDate <= today;
+  });
+  
+  const membersExpiringSoon = members.filter(m => {
+    if (!m.expiry_date) return false;
+    const expiryDate = new Date(m.expiry_date);
+    const daysRemaining = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+    return daysRemaining > 0 && daysRemaining <= 7;
+  }).map(m => ({
+    ...m,
+    days_remaining: Math.ceil((new Date(m.expiry_date) - today) / (1000 * 60 * 60 * 24))
+  }));
+  
+  const noMembershipList = members.filter(m => !m.expiry_date || m.status === "pending");
+  
+  // Calculate earnings
+  const currentMonth = new Date().getMonth();
+  const currentYear = new Date().getFullYear();
+  
+  const thisMonthEarnings = earnings
+    .filter(e => {
+      const eDate = new Date(e.date);
+      return eDate.getMonth() === currentMonth && eDate.getFullYear() === currentYear;
     })
-    .sort((a, b) => parseInt(a.days_remaining) - parseInt(b.days_remaining))
-    .slice(0, 5); // Show top 5
+    .reduce((sum, e) => sum + e.amount, 0);
+  
+  const lastMonthDate = new Date(currentYear, currentMonth - 1);
+  const lastMonthEarnings = earnings
+    .filter(e => {
+      const eDate = new Date(e.date);
+      return eDate.getMonth() === lastMonthDate.getMonth() && eDate.getFullYear() === lastMonthDate.getFullYear();
+    })
+    .reduce((sum, e) => sum + e.amount, 0);
+  
+  const thisYearEarnings = earnings
+    .filter(e => {
+      const eDate = new Date(e.date);
+      return eDate.getFullYear() === currentYear;
+    })
+    .reduce((sum, e) => sum + e.amount, 0);
 
-  // Get expired members that need renewal
-  const expiredMembersNeedRenewal = members
-    .filter(m => m.membership_type === "expired")
-    .sort((a, b) => new Date(b.expiry_date) - new Date(a.expiry_date))
-    .slice(0, 5); // Show top 5
+  // Handle membership renewal
+  const handleRenewMembership = async () => {
+    if (!renewingMember || !selectedPlan) return;
 
-  // Get members without any membership
-  const noMembershipList = members
-    .filter(m => m.membership_type === "no_membership")
-    .sort((a, b) => a.name.localeCompare(b.name));
+    const plan = MEMBERSHIP_PLANS.find(p => p.id === selectedPlan);
+    if (!plan) return;
 
-  // Format paise to rupees
-  const formatRupees = paise => {
-    const rupees = paise / 100;
-    return `₹${rupees.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+    const amount = MEMBERSHIP_FEE * plan.months;
+    const today = new Date();
+    const newExpiryDate = new Date(today);
+    newExpiryDate.setMonth(newExpiryDate.getMonth() + plan.months);
+
+    // Update member start and expiry dates
+    const updatedMembers = members.map(m => {
+      if (m.user_id === renewingMember.user_id) {
+        const newExpiry = newExpiryDate.toISOString().split('T')[0];
+        const daysLeft = Math.ceil((newExpiryDate - today) / (1000 * 60 * 60 * 24));
+        return {
+          ...m,
+          start_date: today.toISOString().split('T')[0],
+          expiry_date: newExpiry,
+          plan: plan.label,
+          membership_type: "active",
+          status: "active",
+          days_remaining: daysLeft
+        };
+      }
+      return m;
+    });
+    setMembers(updatedMembers);
+
+    // Add earning record
+    const newEarning = {
+      id: Date.now(),
+      memberId: renewingMember.user_id,
+      memberName: renewingMember.name,
+      planId: selectedPlan,
+      planLabel: plan.label,
+      months: plan.months,
+      amount: amount,
+      date: new Date().toISOString()
+    };
+    
+    const updatedEarnings = [...earnings, newEarning];
+    setEarnings(updatedEarnings);
+    localStorage.setItem(`gym_earnings_${gymOwner?.gym_id}`, JSON.stringify(updatedEarnings));
+
+    const startDate = today.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    const endDate = newExpiryDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    setReminderMessage(`✅ Membership renewed! Start: ${startDate} | End: ${endDate} | Added ₹${amount}`);
+    setTimeout(() => setReminderMessage(""), 3000);
+    
+    setShowRenewModal(false);
+    setRenewingMember(null);
+    setSelectedPlan("monthly");
   };
 
   // Send reminder to member
@@ -165,102 +258,7 @@ export default function GymOwnerDashboard({ gymOwner, onLogout }) {
     }
   };
 
-  // Generate payment heatmap data
-  const getPaymentDates = () => {
-    // Mock payment dates - in real app, fetch from backend
-    // Format: array of dates when payments were received
-    const dates = [];
-    for (let i = 0; i < members.length; i++) {
-      if (members[i].start_date) {
-        const date = new Date(members[i].start_date);
-        // Set to same year as selected
-        date.setFullYear(selectedYear);
-        dates.push(date.toISOString().split('T')[0]);
-      }
-    }
-    return [...new Set(dates)]; // Remove duplicates
-  };
 
-  const paymentDates = getPaymentDates();
-
-  // Generate calendar for each month
-  const generateMonthCalendar = (month) => {
-    const firstDay = new Date(selectedYear, month, 1);
-    const lastDay = new Date(selectedYear, month + 1, 0);
-    const daysInMonth = lastDay.getDate();
-    const startingDayOfWeek = firstDay.getDay();
-    
-    const days = [];
-    for (let i = 0; i < startingDayOfWeek; i++) {
-      days.push(null);
-    }
-    for (let i = 1; i <= daysInMonth; i++) {
-      days.push(i);
-    }
-    return days;
-  };
-
-  const hasPayment = (day, month) => {
-    if (!day) return false;
-    const dateStr = `${selectedYear}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    return paymentDates.includes(dateStr);
-  };
-
-  const handleMonthClick = async (monthIdx) => {
-    setSelectedMonth(monthIdx);
-    setLoadingPayments(true);
-    try {
-      const monthNum = monthIdx + 1;
-      const data = await getPaymentsByMonth(selectedYear, monthNum);
-      setMonthPayments(data.payments || []);
-      setShowPaymentsModal(true);
-    } catch (err) {
-      alert(`Failed to fetch payments: ${err.message}`);
-    } finally {
-      setLoadingPayments(false);
-    }
-  };
-
-  const generatePaymentReceipt = (payment) => {
-    const date = new Date(payment.paidAt).toLocaleDateString("en-IN");
-    const time = new Date(payment.paidAt).toLocaleTimeString("en-IN");
-    const amount = (payment.amount / 100).toFixed(2);
-    
-    return `
-═══════════════════════════════
-        PAYMENT RECEIPT
-═══════════════════════════════
-
-Gym Name: ${gymOwner.gymName}
-Member Name: ${payment.userName}
-Email: ${payment.userEmail}
-Phone: ${payment.userPhone}
-
-Plan: ${payment.planName}
-Amount: ₹${amount}
-Date & Time: ${date} ${time}
-Transaction ID: ${payment.id}
-
-Status: ${payment.status.toUpperCase()}
-
-═══════════════════════════════
-Thank you for your payment!
-═══════════════════════════════
-    `;
-  };
-
-  const downloadReceipt = (payment) => {
-    const receipt = generatePaymentReceipt(payment);
-    const element = document.createElement("a");
-    element.setAttribute("href", "data:text/plain;charset=utf-8," + encodeURIComponent(receipt));
-    element.setAttribute("download", `receipt_${payment.id}.txt`);
-    element.style.display = "none";
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
-  };
-
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
   const formatDate = dateStr => {
     if (!dateStr) return "-";
@@ -357,8 +355,156 @@ Thank you for your payment!
       {/* Main Content Area */}
       <div style={{ maxWidth:680, margin:"0 auto", padding:"20px 16px" }}>
 
-        {/* ── DASHBOARD TAB ── */}
-        {activeTab === "dashboard" && (
+        {/* ── MEMBERS TAB ── */}
+        {activeTab === "members" && (
+          <>
+            <div style={{ marginBottom:22 }}>
+              <h1 style={{ color:C.dark, margin:"0 0 4px", fontFamily:"'Barlow Condensed',sans-serif", fontSize:26, fontWeight:800 }}>
+                Gym Members
+              </h1>
+              <p style={{ color:C.muted, margin:0, fontSize:14 }}>
+                Search and view details of all members registered under <strong>{gymOwner.gymName}</strong>.
+              </p>
+            </div>
+
+            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12, marginBottom:16 }}>
+                <span style={{ color:C.dark, fontWeight:700, fontSize:15 }}>Members List ({filteredMembers.length})</span>
+                
+                <input 
+                  type="text" 
+                  placeholder="Search name or plan..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  style={{ 
+                    padding:"8px 12px", 
+                    borderRadius:8, 
+                    border:`1.5px solid ${C.border}`,
+                    background:C.surface,
+                    color:C.dark,
+                    outline:"none", 
+                    fontSize:13, 
+                    width:"100%", 
+                    maxWidth:200,
+                    fontFamily:"'Barlow',sans-serif"
+                  }}
+                />
+              </div>
+
+              {loading ? (
+                <div style={{ padding:"40px 0", textAlign:"center", color:C.muted, fontWeight:600 }}>Loading members...</div>
+              ) : error ? (
+                <div style={{ color:C.red, padding:"12px", background:"#FEE2E2", borderRadius:8, fontWeight:600 }}>{error}</div>
+              ) : filteredMembers.length === 0 ? (
+                <div style={{ padding:"40px 0", textAlign:"center", color:C.muted, fontWeight:600 }}>
+                  {searchQuery ? "No matching members found." : "No members registered yet."}
+                </div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table className="member-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Plan</th>
+                        <th>Start</th>
+                        <th>End</th>
+                        <th>Days Left</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredMembers.map((member, idx) => {
+                        const daysLeft = parseInt(member.days_remaining || 0);
+                        const hasNoMembership = member.membership_type === "no_membership";
+                        const isExpired = member.membership_type === "expired";
+                        const isActive = member.membership_type === "active";
+                        
+                        return (
+                          <tr key={idx} style={{ background: hasNoMembership ? "#FFFBEB" : isExpired ? "#FEF2F2" : "transparent" }}>
+                            <td style={{ fontWeight: 700 }}>
+                              {member.name}
+                              {hasNoMembership && (
+                                <span style={{ 
+                                  marginLeft: 8, 
+                                  padding: "2px 8px", 
+                                  background: "#FCD34D", 
+                                  color: "#92400E",
+                                  borderRadius: 4,
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  textTransform: "uppercase"
+                                }}>
+                                  ⚠ No Membership
+                                </span>
+                              )}
+                            </td>
+                            <td style={{ color: hasNoMembership ? "#F59E0B" : "inherit", fontWeight: hasNoMembership ? 700 : 500 }}>
+                              {member.plan}
+                            </td>
+                            <td>{formatDate(member.start_date)}</td>
+                            <td>{formatDate(member.expiry_date)}</td>
+                            <td>
+                              {hasNoMembership ? (
+                                <span style={{ color: "#F59E0B", fontWeight: 700 }}>Pending</span>
+                              ) : isExpired ? (
+                                <span style={{ color: C.red, fontWeight: 700 }}>Expired</span>
+                              ) : isActive && daysLeft <= 5 ? (
+                                <span style={{ 
+                                  color: C.warning, 
+                                  fontWeight: 700 
+                                }}>
+                                  {daysLeft} days
+                                </span>
+                              ) : (
+                                <span style={{ 
+                                  color: C.success, 
+                                  fontWeight: 700 
+                                }}>
+                                  {daysLeft} days
+                                </span>
+                              )}
+                            </td>
+                            <td>
+                              <span className={`badge ${hasNoMembership ? "inactive" : isExpired ? "expired" : member.status}`}>
+                                {hasNoMembership ? "pending" : isExpired ? "expired" : member.status}
+                              </span>
+                            </td>
+                            <td>
+                              {isExpired && (
+                                <button
+                                  onClick={() => handleSendReminder(member)}
+                                  disabled={sendingReminderId === member.user_id}
+                                  style={{
+                                    padding: "5px 10px",
+                                    background: sendingReminderId === member.user_id ? C.muted : C.warning,
+                                    color: "white",
+                                    border: "none",
+                                    borderRadius: 6,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    cursor: sendingReminderId === member.user_id ? "not-allowed" : "pointer",
+                                    whiteSpace: "nowrap",
+                                    opacity: sendingReminderId === member.user_id ? 0.6 : 1
+                                  }}
+                                >
+                                  {sendingReminderId === member.user_id ? "Sending..." : "📢 Remind"}
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* ── ADMIN TAB ── */}
+        {activeTab === "admin" && (
           <>
             <div style={{ marginBottom:22 }}>
               <h1 style={{ color:C.dark, margin:"0 0 4px", fontFamily:"'Barlow Condensed',sans-serif", fontSize:26, fontWeight:800 }}>
@@ -385,7 +531,26 @@ Thank you for your payment!
               ))}
             </div>
 
-            {/* 🔄 EXPIRED MEMBERSHIPS - RENEWAL SECTION */}
+            {/* � EARNINGS SECTION */}
+            <div style={{ marginBottom:20 }}>
+              <h2 style={{ color:C.dark, margin:"0 0 12px", fontFamily:"'Barlow Condensed',sans-serif", fontSize:18, fontWeight:800 }}>
+                💰 Earnings
+              </h2>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))", gap:10 }}>
+                {[
+                  { label:"This Month", value:`₹${thisMonthEarnings}`, color:C.primary },
+                  { label:"Last Month", value:`₹${lastMonthEarnings}`, color:C.warning },
+                  { label:"This Year", value:`₹${thisYearEarnings}`, color:C.success },
+                ].map(s => (
+                  <div key={s.label} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"13px 14px" }}>
+                    <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1, fontWeight:600, marginBottom:5 }}>{s.label}</div>
+                    <div style={{ fontSize:20, fontWeight:800, color:s.color, fontFamily:"'Barlow Condensed',sans-serif" }}>{s.value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* �🔄 EXPIRED MEMBERSHIPS - RENEWAL SECTION */}
             {expiredMembers > 0 && (
               <div style={{ marginBottom:22, background:"linear-gradient(135deg,#FEE2E2,#FEC2C2)", border:"1.5px solid #FECACA", borderRadius:12, padding:"16px", overflow:"hidden" }}>
                 <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
@@ -395,7 +560,7 @@ Thank you for your payment!
                   </h2>
                 </div>
                 <p style={{ color:"#991B1B", fontSize:13, margin:"0 0 12px", fontWeight:500 }}>
-                  These members' gym memberships have expired. Reach out to renew their plans and maintain your revenue stream.
+                  These members' gym memberships have expired. Reach out to renew their plans.
                 </p>
                 <div style={{ display:"flex", flexDirection:"column", gap:8, maxHeight:"200px", overflowY:"auto" }}>
                   {expiredMembersNeedRenewal.slice(0, 5).map((member, idx) => (
@@ -421,7 +586,7 @@ Thank you for your payment!
                         onClick={() => handleSendReminder(member)}
                         disabled={sendingReminderId === member.user_id}
                         style={{
-                          background: sendingReminderId === member.user_id ? C.muted : C.red,
+                          background: sendingReminderId === member.user_id ? C.muted : C.warning,
                           border:"none",
                           color:"white",
                           padding:"6px 12px",
@@ -435,7 +600,7 @@ Thank you for your payment!
                         }}
                         title="Send renewal reminder"
                       >
-                        {sendingReminderId === member.user_id ? "Sending..." : "🔔 Renew"}
+                        {sendingReminderId === member.user_id ? "Sending..." : "📢 Remind"}
                       </button>
                     </div>
                   ))}
@@ -448,32 +613,11 @@ Thank you for your payment!
               </div>
             )}
 
-            {/* Revenue Section */}
-            <div style={{ marginBottom:20 }}>
-              <h2 style={{ color:C.dark, margin:"0 0 12px", fontFamily:"'Barlow Condensed',sans-serif", fontSize:18, fontWeight:800 }}>
-                💰 Revenue
-              </h2>
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10 }}>
-                {[
-                  { label:"Today", value:formatRupees(revenue.today), color:C.primary },
-                  { label:"This Month", value:formatRupees(revenue.thisMonth), color:C.success },
-                  { label:"This Year", value:formatRupees(revenue.thisYear), color:C.warning },
-                ].map(s => (
-                  <div key={s.label} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"13px 14px" }}>
-                    <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1, fontWeight:600, marginBottom:5 }}>{s.label}</div>
-                    <div style={{ fontSize:18, fontWeight:800, color:s.color, fontFamily:"'Barlow Condensed',sans-serif" }}>{s.value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Members Expiring Soon */}
-            <div>
+            {/* ⏰ Members Expiring Soon */}
+            <div style={{ marginBottom:22 }}>
               <h2 style={{ color:C.dark, margin:"0 0 12px", fontFamily:"'Barlow Condensed',sans-serif", fontSize:18, fontWeight:800 }}>
                 ⏰ Expiring Soon (Next 7 Days)
               </h2>
-
-              {/* Reminder Message Alert */}
               {reminderMessage && (
                 <div style={{
                   background: reminderMessage.includes("✅") ? "#DCFCE7" : "#FEE2E2",
@@ -514,37 +658,33 @@ Thank you for your payment!
                             {member.plan} Plan
                           </div>
                         </div>
-                        <div style={{
-                          background: member.days_remaining <= 2 ? "#FEE2E2" : "#FEF3C7",
-                          color: member.days_remaining <= 2 ? "#991B1B" : "#92400E",
-                          padding:"6px 12px",
-                          borderRadius:8,
-                          fontWeight:700,
-                          fontSize:13,
-                          whiteSpace:"nowrap"
-                        }}>
-                          {member.days_remaining} day{member.days_remaining !== "1" ? "s" : ""}
-                        </div>
-                        <button
-                          onClick={() => handleSendReminder(member)}
-                          disabled={sendingReminderId === member.user_id}
-                          style={{
-                            background: sendingReminderId === member.user_id ? C.muted : C.primary,
-                            border:"none",
-                            color:"white",
+                        <div style={{ display:"flex", alignItems:"center", gap:8, whiteSpace:"nowrap" }}>
+                          <div style={{
+                            background: member.days_remaining <= 2 ? "#FEE2E2" : "#FEF3C7",
+                            color: member.days_remaining <= 2 ? "#991B1B" : "#92400E",
                             padding:"6px 12px",
                             borderRadius:8,
                             fontWeight:700,
-                            fontSize:12,
-                            cursor: sendingReminderId === member.user_id ? "not-allowed" : "pointer",
-                            whiteSpace:"nowrap",
-                            transition:"all 0.2s",
-                            opacity: sendingReminderId === member.user_id ? 0.6 : 1
-                          }}
-                          title="Send WhatsApp reminder"
-                        >
-                          {sendingReminderId === member.user_id ? "Sending..." : "📱 Remind"}
-                        </button>
+                            fontSize:13
+                          }}>
+                            {member.days_remaining} day{member.days_remaining !== "1" ? "s" : ""}
+                          </div>
+                          <button
+                            onClick={() => handleSendReminder(member)}
+                            style={{
+                              padding: "5px 10px",
+                              background: C.warning,
+                              color: "white",
+                              border: "none",
+                              borderRadius: 6,
+                              fontSize: 12,
+                              fontWeight: 700,
+                              cursor: "pointer"
+                            }}
+                          >
+                            📢 Remind
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -554,7 +694,7 @@ Thank you for your payment!
 
             {/* ❌ MEMBERS WITH NO MEMBERSHIP - URGENT SECTION */}
             {noMembershipMembers > 0 && (
-              <div style={{ marginTop:40, marginBottom:22, background:"linear-gradient(135deg,#FEF3C7,#FEE2E2)", border:"1.5px solid #FCD34D", borderRadius:12, padding:"16px", overflow:"hidden" }}>
+              <div style={{ marginBottom:22, background:"linear-gradient(135deg,#FEF3C7,#FEE2E2)", border:"1.5px solid #FCD34D", borderRadius:12, padding:"16px", overflow:"hidden" }}>
                 <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
                   <div style={{ fontSize:20 }}>⚠️</div>
                   <h2 style={{ color:"#92400E", margin:0, fontFamily:"'Barlow Condensed',sans-serif", fontSize:18, fontWeight:800 }}>
@@ -619,7 +759,6 @@ Thank you for your payment!
             {reminderError && (
               <div style={{
                 marginBottom:22,
-                marginTop:40,
                 background: reminderError.type === "invalid_phone" ? "#FEF3C7" : "#FEE2E2",
                 border: reminderError.type === "invalid_phone" ? "2px solid #F59E0B" : "2px solid #EF4444",
                 borderRadius:12,
@@ -643,223 +782,6 @@ Thank you for your payment!
                 </div>
               </div>
             )}
-          </>
-        )}
-
-        {/* ── MEMBERS TAB ── */}
-        {activeTab === "members" && (
-          <>
-            <div style={{ marginBottom:22 }}>
-              <h1 style={{ color:C.dark, margin:"0 0 4px", fontFamily:"'Barlow Condensed',sans-serif", fontSize:26, fontWeight:800 }}>
-                Gym Members
-              </h1>
-              <p style={{ color:C.muted, margin:0, fontSize:14 }}>
-                Search and view details of all members registered under <strong>{gymOwner.gymName}</strong>.
-              </p>
-            </div>
-
-            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"16px 18px" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12, marginBottom:16 }}>
-                <span style={{ color:C.dark, fontWeight:700, fontSize:15 }}>Members List ({filteredMembers.length})</span>
-                
-                <input 
-                  type="text" 
-                  placeholder="Search name or plan..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  style={{ 
-                    padding:"8px 12px", 
-                    borderRadius:8, 
-                    border:`1.5px solid ${C.border}`,
-                    background:C.surface,
-                    color:C.dark,
-                    outline:"none", 
-                    fontSize:13, 
-                    width:"100%", 
-                    maxWidth:200,
-                    fontFamily:"'Barlow',sans-serif"
-                  }}
-                />
-              </div>
-
-              {loading ? (
-                <div style={{ padding:"40px 0", textAlign:"center", color:C.muted, fontWeight:600 }}>Loading members...</div>
-              ) : error ? (
-                <div style={{ color:C.red, padding:"12px", background:"#FEE2E2", borderRadius:8, fontWeight:600 }}>{error}</div>
-              ) : filteredMembers.length === 0 ? (
-                <div style={{ padding:"40px 0", textAlign:"center", color:C.muted, fontWeight:600 }}>
-                  {searchQuery ? "No matching members found." : "No members registered yet."}
-                </div>
-              ) : (
-                <div style={{ overflowX: "auto" }}>
-                  <table className="member-table">
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Plan</th>
-                        <th>Start</th>
-                        <th>End</th>
-                        <th>Days Left</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredMembers.map((member, idx) => {
-                        const daysLeft = parseInt(member.days_remaining || 0);
-                        const hasNoMembership = member.membership_type === "no_membership";
-                        const isExpired = member.membership_type === "expired";
-                        const isActive = member.membership_type === "active";
-                        
-                        return (
-                          <tr key={idx} style={{ background: hasNoMembership ? "#FFFBEB" : isExpired ? "#FEF2F2" : "transparent" }}>
-                            <td style={{ fontWeight: 700 }}>
-                              {member.name}
-                              {hasNoMembership && (
-                                <span style={{ 
-                                  marginLeft: 8, 
-                                  padding: "2px 8px", 
-                                  background: "#FCD34D", 
-                                  color: "#92400E",
-                                  borderRadius: 4,
-                                  fontSize: 10,
-                                  fontWeight: 700,
-                                  textTransform: "uppercase"
-                                }}>
-                                  ⚠ No Membership
-                                </span>
-                              )}
-                            </td>
-                            <td style={{ color: hasNoMembership ? "#F59E0B" : "inherit", fontWeight: hasNoMembership ? 700 : 500 }}>
-                              {member.plan}
-                            </td>
-                            <td>{formatDate(member.start_date)}</td>
-                            <td>{formatDate(member.expiry_date)}</td>
-                            <td>
-                              {hasNoMembership ? (
-                                <span style={{ color: "#F59E0B", fontWeight: 700 }}>Pending</span>
-                              ) : isExpired ? (
-                                <span style={{ color: C.red, fontWeight: 700 }}>Expired</span>
-                              ) : isActive && daysLeft <= 5 ? (
-                                <span style={{ 
-                                  color: C.warning, 
-                                  fontWeight: 700 
-                                }}>
-                                  {daysLeft} days
-                                </span>
-                              ) : (
-                                <span style={{ 
-                                  color: C.success, 
-                                  fontWeight: 700 
-                                }}>
-                                  {daysLeft} days
-                                </span>
-                              )}
-                            </td>
-                            <td>
-                              <span className={`badge ${hasNoMembership ? "inactive" : isExpired ? "expired" : member.status}`}>
-                                {hasNoMembership ? "pending" : isExpired ? "expired" : member.status}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </>
-        )}
-
-        {/* ── PAYMENTS TAB ── */}
-        {activeTab === "payments" && (
-          <>
-            <div style={{ marginBottom:22 }}>
-              <h1 style={{ color:C.dark, margin:"0 0 4px", fontFamily:"'Barlow Condensed',sans-serif", fontSize:26, fontWeight:800 }}>
-                Payment Heatmap
-              </h1>
-              <p style={{ color:C.muted, margin:0, fontSize:14 }}>
-                View payment activity across the year. Green dots show payment dates.
-              </p>
-            </div>
-
-            {/* Year Filter */}
-            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"16px", marginBottom:20 }}>
-              <label style={{ display:"block", marginBottom:8, color:C.dark, fontWeight:700, fontSize:13 }}>Select Year:</label>
-              <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
-                <button onClick={() => setSelectedYear(selectedYear - 1)} style={{
-                  padding:"6px 12px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6,
-                  color:C.dark, cursor:"pointer", fontSize:13, fontWeight:600
-                }}>← Prev</button>
-                
-                <span style={{ fontSize:16, fontWeight:800, color:C.primary, minWidth:60, textAlign:"center" }}>
-                  {selectedYear}
-                </span>
-                
-                <button onClick={() => setSelectedYear(selectedYear + 1)} style={{
-                  padding:"6px 12px", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6,
-                  color:C.dark, cursor:"pointer", fontSize:13, fontWeight:600
-                }}>Next →</button>
-              </div>
-            </div>
-
-            {/* 12 Month Heatmap */}
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))", gap:14 }}>
-              {monthNames.map((month, idx) => {
-                const days = generateMonthCalendar(idx);
-                return (
-                  <div key={month} onClick={() => handleMonthClick(idx)} className="month-card" style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:12, overflow:"hidden" }}>
-                    <div style={{ textAlign:"center", marginBottom:10, fontWeight:700, color:C.dark, fontSize:13 }}>
-                      {month} {selectedYear}
-                    </div>
-                    
-                    <div style={{ display:"grid", gridTemplateColumns:"repeat(7, 1fr)", gap:4 }}>
-                      {["S", "M", "T", "W", "T", "F", "S"].map(day => (
-                        <div key={day} style={{ textAlign:"center", fontSize:10, fontWeight:700, color:C.muted, padding:"3px 0" }}>
-                          {day}
-                        </div>
-                      ))}
-                      {days.map((day, dayIdx) => (
-                        <div key={dayIdx} style={{
-                          width:"100%",
-                          aspectRatio:"1",
-                          display:"flex",
-                          alignItems:"center",
-                          justifyContent:"center",
-                          fontSize:11,
-                          fontWeight:600,
-                          borderRadius:6,
-                          background: hasPayment(day, idx) ? "#DCFCE7" : C.surface,
-                          color: hasPayment(day, idx) ? "#166534" : C.muted,
-                          position:"relative"
-                        }}>
-                          {day}
-                          {hasPayment(day, idx) && (
-                            <div style={{
-                              position:"absolute",
-                              top:1,
-                              right:1,
-                              width:4,
-                              height:4,
-                              background:"#10B981",
-                              borderRadius:"50%"
-                            }} />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Legend */}
-            <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:14, marginTop:20, display:"flex", alignItems:"center", gap:12 }}>
-              <div style={{ width:20, height:20, background:"#DCFCE7", borderRadius:6, position:"relative" }}>
-                <div style={{ position:"absolute", top:1, right:1, width:4, height:4, background:"#10B981", borderRadius:"50%" }} />
-              </div>
-              <span style={{ fontSize:13, color:C.dark, fontWeight:500 }}>Payment received on this date</span>
-            </div>
           </>
         )}
 
@@ -1012,8 +934,8 @@ Thank you for your payment!
         )}
       </div>
 
-      {/* Payments Modal */}
-      {showPaymentsModal && (
+      {/* Renewal Modal */}
+      {showRenewModal && renewingMember && (
         <div style={{
           position: "fixed",
           top: 0,
@@ -1029,21 +951,18 @@ Thank you for your payment!
         }}>
           <div style={{
             width: "100%",
-            maxWidth: 500,
+            maxWidth: 400,
             background: C.card,
             borderRadius: 14,
             padding: "24px",
-            border: `1px solid ${C.border}`,
-            maxHeight: "85vh",
-            display: "flex",
-            flexDirection: "column"
+            border: `1px solid ${C.border}`
           }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <h2 style={{ color: C.dark, margin: 0, fontFamily: "'Barlow Condensed', sans-serif", fontSize: 22, fontWeight: 800 }}>
-                Payments: {monthNames[selectedMonth]} {selectedYear}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h2 style={{ color: C.dark, margin: 0, fontFamily: "'Barlow Condensed', sans-serif", fontSize: 20, fontWeight: 700 }}>
+                Renew Membership
               </h2>
               <button
-                onClick={() => setShowPaymentsModal(false)}
+                onClick={() => setShowRenewModal(false)}
                 style={{
                   background: "none",
                   border: "none",
@@ -1059,106 +978,101 @@ Thank you for your payment!
               </button>
             </div>
 
-            <div style={{ flex: 1, overflowY: "auto", paddingRight: 4, marginBottom: 16 }}>
-              {loadingPayments ? (
-                <div style={{ padding: "40px 0", textAlign: "center", color: C.muted, fontWeight: 600 }}>
-                  Loading payments...
-                </div>
-              ) : monthPayments.length === 0 ? (
-                <div style={{ padding: "40px 0", textAlign: "center", color: C.muted, fontSize: 14 }}>
-                  No payments received in {monthNames[selectedMonth]} {selectedYear}.
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {monthPayments.map((payment) => {
-                    const date = new Date(payment.paidAt).toLocaleDateString("en-IN", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric"
-                    });
-                    const amount = (payment.amount / 100).toFixed(2);
-                    return (
-                      <div key={payment.id} style={{
-                        background: C.surface,
-                        border: `1px solid ${C.border}`,
-                        borderRadius: 10,
-                        padding: 14,
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 8
-                      }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                          <div>
-                            <div style={{ fontWeight: 700, color: C.dark, fontSize: 15 }}>
-                              {payment.userName}
-                            </div>
-                            <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
-                              {payment.userPhone || "No Phone"} • {payment.userEmail}
-                            </div>
-                          </div>
-                          <div style={{ textAlign: "right" }}>
-                            <div style={{ fontWeight: 800, color: C.success, fontSize: 16, fontFamily: "'Barlow Condensed', sans-serif" }}>
-                              ₹{amount}
-                            </div>
-                            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-                              {date}
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div style={{ borderTop: `1px dashed ${C.border}`, paddingTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <div style={{ fontSize: 12, color: C.dark, fontWeight: 500 }}>
-                            Plan: <strong style={{ color: C.primary }}>{payment.planName}</strong>
-                          </div>
-                          <button
-                            onClick={() => downloadReceipt(payment)}
-                            style={{
-                              background: C.primary,
-                              border: "none",
-                              color: "white",
-                              padding: "5px 10px",
-                              borderRadius: 6,
-                              fontSize: 11,
-                              fontWeight: 700,
-                              cursor: "pointer",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 4,
-                              transition: "background 0.2s"
-                            }}
-                            onMouseEnter={e => e.target.style.background = "#2563EB"}
-                            onMouseLeave={e => e.target.style.background = C.primary}
-                          >
-                            📄 Receipt
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+            <div style={{ marginBottom: 16 }}>
+              <p style={{ color: C.dark, fontWeight: 600, marginBottom: 4 }}>
+                Member: <strong>{renewingMember.name}</strong>
+              </p>
+              <p style={{ color: C.muted, fontSize: 13 }}>
+                Current Plan: {renewingMember.plan}
+              </p>
             </div>
 
-            <button
-              onClick={() => setShowPaymentsModal(false)}
-              style={{
-                width: "100%",
-                padding: "10px",
-                background: "transparent",
-                color: C.primary,
-                border: `1.5px solid ${C.primary}`,
-                borderRadius: 8,
-                fontSize: 13,
-                fontWeight: 700,
-                cursor: "pointer",
-                fontFamily: "'Barlow', sans-serif",
-                transition: "all 0.2s"
-              }}
-              onMouseEnter={e => { e.target.style.background = C.primary; e.target.style.color = "white"; }}
-              onMouseLeave={e => { e.target.style.background = "transparent"; e.target.style.color = C.primary; }}
-            >
-              Close
-            </button>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", marginBottom: 8, color: C.dark, fontWeight: 600, fontSize: 13 }}>
+                Select Membership Plan:
+              </label>
+              <select
+                value={selectedPlan}
+                onChange={(e) => setSelectedPlan(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  border: `1.5px solid ${C.border}`,
+                  borderRadius: 8,
+                  background: C.surface,
+                  color: C.dark,
+                  fontFamily: "'Barlow', sans-serif",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  outline: "none"
+                }}
+              >
+                {MEMBERSHIP_PLANS.map(plan => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.label} - ₹{MEMBERSHIP_FEE * plan.months}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ 
+              background: C.surface, 
+              borderRadius: 8, 
+              padding: 12, 
+              marginBottom: 20,
+              borderLeft: `4px solid ${C.primary}`
+            }}>
+              <p style={{ color: C.dark, fontWeight: 700, margin: "0 0 4px" }}>
+                Amount to Add: ₹{MEMBERSHIP_FEE * MEMBERSHIP_PLANS.find(p => p.id === selectedPlan)?.months}
+              </p>
+              <p style={{ color: C.muted, fontSize: 12, margin: 0 }}>
+                Duration: {MEMBERSHIP_PLANS.find(p => p.id === selectedPlan)?.months} month(s)
+              </p>
+            </div>
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={handleRenewMembership}
+                style={{
+                  flex: 1,
+                  padding: "10px",
+                  background: C.success,
+                  color: "white",
+                  border: "none",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: "'Barlow', sans-serif",
+                  transition: "all 0.2s"
+                }}
+                onMouseEnter={e => e.target.style.opacity = "0.9"}
+                onMouseLeave={e => e.target.style.opacity = "1"}
+              >
+                ✅ Renew Membership
+              </button>
+              <button
+                onClick={() => setShowRenewModal(false)}
+                style={{
+                  flex: 1,
+                  padding: "10px",
+                  background: "transparent",
+                  color: C.primary,
+                  border: `1.5px solid ${C.primary}`,
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: "'Barlow', sans-serif",
+                  transition: "all 0.2s"
+                }}
+                onMouseEnter={e => { e.target.style.background = C.primary; e.target.style.color = "white"; }}
+                onMouseLeave={e => { e.target.style.background = "transparent"; e.target.style.color = C.primary; }}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1168,9 +1082,8 @@ Thank you for your payment!
         borderTop:`1px solid ${C.border}`, display:"flex", padding:"8px 0 6px", zIndex:50,
         boxShadow:"0 -1px 12px rgba(59,130,246,0.06)" }}>
         {[
-          { id:"dashboard", icon:"ti-home", label:"Dashboard" },
+          { id:"admin", icon:"ti-stats-up", label:"Admin" },
           { id:"members", icon:"ti-user", label:"Members" },
-          { id:"payments", icon:"ti-calendar", label:"Payments" },
           { id:"profile", icon:"ti-settings", label:"Profile" }
         ].map(({ id, icon, label }) => (
           <button key={id} onClick={() => setActiveTab(id)} style={{

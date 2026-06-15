@@ -1,14 +1,11 @@
 import { useState, useEffect } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import { C, EXERCISES, EXERCISE_VIDEOS, MEAL_EMOJI } from "./constants/data";
-import { MEMBERSHIP_MONTHLY_FEE } from "./constants/membership";
-import { addMonthsToDate, getSubscriptionDays } from "./utils/date";
 import { Avatar, Field, PrimaryBtn, SectionTitle, StatCard, TextInput } from "./components/common";
 import LogModal from "./components/workouts/LogModal";
 import ProgressChart from "./components/workouts/ProgressChart";
 import CalSetupModal from "./components/diet/CalSetupModal";
 import FoodPickerModal from "./components/diet/FoodPickerModal";
-import SubscriptionPanel from "./components/subscriptions/SubscriptionPanel";
 import UserAdminDashboard from "./components/admin/UserAdminDashboard";
 import * as api from "./services/api";
 
@@ -20,39 +17,6 @@ export default function App({ user, onLogout }) {
 
   const [tab, setTab] = useState("dashboard");
   const [goal, setGoal] = useState(LS(`rs_goal_${user.email}`) || "bulking");
-  const [subscription, setSubscription] = useState(LS(`rs_subscription_${user.email}`));
-  const [subscriptionTransactions, setSubscriptionTransactions] = useState(LS(`rs_subscription_tx_${user.email}`) || []);
-  const subscriptionDaysLeft = getSubscriptionDays(subscription);
-  const subscriptionActive = subscriptionDaysLeft > 0;
-
-  const saveSubscriptionPayment = (plan, gymName) => {
-    if (subscriptionActive) return;
-    const now = new Date();
-    const expiryDate = addMonthsToDate(now, plan.months);
-    const receiptId = `RS-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}-${Math.floor(1000 + Math.random() * 9000)}`;
-    const next = {
-      gymName,
-      planId: plan.id,
-      planLabel: plan.label,
-      months: plan.months,
-      amount: plan.months * MEMBERSHIP_MONTHLY_FEE,
-      receiptId,
-      paidAt: now.toISOString(),
-      startDate: now.toISOString(),
-      expiryDate: expiryDate.toISOString(),
-    };
-    const receipt = { ...next, status:"Paid" };
-    const updatedTransactions = [receipt, ...subscriptionTransactions];
-    setSubscription(next);
-    setSubscriptionTransactions(updatedTransactions);
-    saveLS(`rs_subscription_${user.email}`, next);
-    saveLS(`rs_subscription_tx_${user.email}`, updatedTransactions);
-    sync(api.createMembershipPayment({
-      ...next,
-      startDate: now.toISOString().slice(0, 10),
-      expiryDate: expiryDate.toISOString().slice(0, 10),
-    }));
-  };
 
   // Exercise logs
   const [logs, setLogs] = useState(LS(`rs_logs_${user.email}`) || []);
@@ -226,34 +190,7 @@ export default function App({ user, onLogout }) {
           saveLS(`rs_cal_${user.email}`, mappedFoodAll);
         }
 
-        if (data.membership) {
-          const m = data.membership;
-          const parsedSubscription = {
-            gymName: m.gym_name,
-            planId: m.plan_id,
-            planLabel: m.plan_label,
-            months: m.months,
-            amount: m.amount_paise / 100,
-            startDate: m.start_date,
-            expiryDate: m.expiry_date,
-          };
-          setSubscription(parsedSubscription);
-          saveLS(`rs_subscription_${user.email}`, parsedSubscription);
-        }
 
-        if (data.transactions) {
-          const parsedTx = data.transactions.map(t => ({
-            receiptId: t.receipt_id,
-            amount: t.amount_paise / 100,
-            paidAt: t.paid_at,
-            gymName: t.gym_name || "RS Fitness Gym",
-            planLabel: t.plan_label || "Plan",
-            months: t.months || 1,
-            status: t.status
-          }));
-          setSubscriptionTransactions(parsedTx);
-          saveLS(`rs_subscription_tx_${user.email}`, parsedTx);
-        }
       })
       .catch(err => console.warn("Failed to hydrate user data from backend:", err.message));
 
@@ -340,24 +277,7 @@ export default function App({ user, onLogout }) {
               </p>
             </div>
 
-            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:"15px 16px",
-              marginBottom:20, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
-              <div>
-                <div style={{ color:C.muted, fontSize:10, textTransform:"uppercase", letterSpacing:1, fontWeight:700, marginBottom:4 }}>Gym membership</div>
-                <div style={{ color:C.dark, fontFamily:"'Barlow Condensed',sans-serif", fontSize:21, fontWeight:800 }}>
-                  {subscriptionActive ? `${subscriptionDaysLeft} day${subscriptionDaysLeft===1?"":"s"} left` : "No active membership"}
-                </div>
-                <div style={{ color:C.muted, fontSize:12, marginTop:2 }}>
-                  {subscriptionActive ? "Manage your subscription from Profile" : "Activate your gym membership from Profile"}
-                </div>
-              </div>
-              <button onClick={() => setTab("profile")}
-                style={{ background:C.primary, border:"none", borderRadius:8, padding:"9px 13px",
-                  color:"#fff", fontSize:12, fontWeight:800, cursor:"pointer",
-                  fontFamily:"'Barlow Condensed',sans-serif", textTransform:"uppercase", flexShrink:0 }}>
-                Manage
-              </button>
-            </div>
+
 
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:20 }}>
               {[
@@ -1062,7 +982,7 @@ export default function App({ user, onLogout }) {
               </div>
             </div>
 
-            <SubscriptionPanel user={user} subscription={subscription} transactions={subscriptionTransactions} onPay={saveSubscriptionPayment}/>
+
 
             <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"13px 18px", marginBottom:10 }}>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
@@ -1095,8 +1015,6 @@ export default function App({ user, onLogout }) {
         {tab==="admin" && (
           <UserAdminDashboard
             user={user}
-            subscription={subscription}
-            transactions={subscriptionTransactions}
             logs={logs}
             weekLogs={weekLogs}
             uniqueExs={uniqueExs}

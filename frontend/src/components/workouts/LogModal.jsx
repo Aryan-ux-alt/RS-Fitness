@@ -96,7 +96,7 @@ export default function LogModal({ onClose, onSave, goal }) {
         {searchTerm && globalSearchResults.length > 0 && (
           <div style={{ marginTop:8, maxHeight:180, overflowY:"auto", border:`1px solid ${C.border}`, borderRadius:6, background:"#fff" }}>
             {globalSearchResults.map((ex, i) => (
-              <button key={i} onClick={() => handleExerciseSelect(ex)}
+              <button key={ex} onClick={() => { handleExerciseSelect(ex); setSearchTerm(""); }}
                 style={{ display:"block", width:"100%", padding:"8px 12px", border:"none", background:exercise===ex ? C.surface : "transparent",
                   textAlign:"left", cursor:"pointer", fontSize:13, color:C.dark, fontFamily:"'Barlow',sans-serif",
                   borderBottom:i < globalSearchResults.length-1 ? `1px solid ${C.border}` : "none",

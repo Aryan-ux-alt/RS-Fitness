@@ -58,9 +58,7 @@ export const login = payload => request("/auth/login", { method:"POST", body:JSO
 export const signupGymOwner = payload => request("/gym-owners/signup", { method:"POST", body:JSON.stringify(payload) });
 export const loginGymOwner = payload => request("/gym-owners/login", { method:"POST", body:JSON.stringify(payload) });
 export const getGymMembers = () => request("/gym-owners/members");
-export const getGymRevenue = () => request("/gym-owners/revenue");
 export const sendMemberReminder = payload => request("/gym-owners/send-reminder", { method:"POST", body:JSON.stringify(payload) });
-export const getPaymentsByMonth = (year, month) => request(`/gym-owners/payments?year=${year}&month=${month}`);
 export const logout = refreshToken => {
   const isGymOwner = !!localStorage.getItem("rs_gym_owner_session");
   const endpoint = isGymOwner ? "/gym-owners/logout" : "/auth/logout";
@@ -72,10 +70,6 @@ export const createWorkout = payload => request("/workouts", { method:"POST", bo
 export const addBodyMetric = payload => request("/body/metrics", { method:"POST", body:JSON.stringify(payload) });
 export const saveCalorieProfile = payload => request("/nutrition/profile", { method:"POST", body:JSON.stringify(payload) });
 export const addFoodEntry = payload => request("/nutrition/food", { method:"POST", body:JSON.stringify(payload) });
-export const createMembershipPayment = payload => request("/memberships/payments", { method:"POST", body:JSON.stringify(payload) });
-export const getUserInvoices = () => request("/memberships/invoices");
-export const getInvoiceDetails = invoiceId => request(`/memberships/invoices/${invoiceId}`);
-export const getUserPaymentTransactions = () => request("/memberships/transactions");
 export const updateGoal = payload => request("/goal", { method:"PUT", body:JSON.stringify(payload) });
 export const checkGym = name => request(`/auth/check-gym?name=${encodeURIComponent(name)}`);
 export const getRegisteredGyms = () => request("/auth/gyms");
